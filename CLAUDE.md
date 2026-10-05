@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Always use `uv` to run the server and all Python scripts in this project (e.g. `uv run python script.py`); do not use pip.
 - All `git push` operations to remote `origin` must be explicitly approved by the user before pushing.
+- Use `uv` to manage all dependencies (`uv add`, `uv remove`, `uv sync`) so `pyproject.toml` and `uv.lock` stay in sync.
 - Install deps: `uv sync` (Python >= 3.13)
 - Run the app: `./run.sh` (or `cd backend && uv run uvicorn app:app --reload --port 8000`)
   - Web UI at http://localhost:8000, Swagger docs at http://localhost:8000/docs

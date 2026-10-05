@@ -508,6 +508,27 @@ a.source-pill:focus-visible {
     color: var(--primary-color);
 }
 
+.new-chat-button {
+    font-family: inherit;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0.5rem 0;
+    border: none;
+    background: none;
+    outline: none;
+    text-align: left;
+    transition: color 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.new-chat-button:hover,
+.new-chat-button:focus {
+    color: var(--primary-color);
+}
+
 .stats-header::-webkit-details-marker,
 .suggested-header::-webkit-details-marker {
     display: none;

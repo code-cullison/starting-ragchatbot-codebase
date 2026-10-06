@@ -33,6 +33,9 @@ All responses must be:
 Provide only the direct answer to what was asked.
 """
     
+    # Max sequential tool-execution rounds per query before forcing a text answer
+    MAX_TOOL_ROUNDS = 2
+
     def __init__(self, api_key: str, model: str):
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
@@ -92,7 +95,12 @@ Provide only the direct answer to what was asked.
     @staticmethod
     def _extract_text(response) -> str:
         """Return the first text block, skipping thinking or other non-text blocks"""
-        return next(block.text for block in response.content if block.type == "text")
+        for block in response.content:
+            if block.type == "text":
+                return block.text
+        raise RuntimeError(
+            f"Claude returned no text content (stop_reason={response.stop_reason!r})"
+        )
 
     def _handle_tool_execution(self, initial_response, base_params: Dict[str, Any], tool_manager):
         """
@@ -108,36 +116,44 @@ Provide only the direct answer to what was asked.
         """
         # Start with existing messages
         messages = base_params["messages"].copy()
-        
-        # Add AI's tool use response
-        messages.append({"role": "assistant", "content": initial_response.content})
-        
-        # Execute all tool calls and collect results
-        tool_results = []
-        for content_block in initial_response.content:
-            if content_block.type == "tool_use":
-                tool_result = tool_manager.execute_tool(
-                    content_block.name, 
-                    **content_block.input
-                )
-                
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": content_block.id,
-                    "content": tool_result
-                })
-        
-        # Add tool results as single message
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-        
-        # Prepare final API call without tools
-        final_params = {
-            **self.base_params,
-            "messages": messages,
-            "system": base_params["system"]
-        }
-        
-        # Get final response
-        final_response = self.client.messages.create(**final_params)
-        return self._extract_text(final_response)
+        response = initial_response
+
+        for round_num in range(1, self.MAX_TOOL_ROUNDS + 1):
+            # Add AI's tool use response
+            messages.append({"role": "assistant", "content": response.content})
+
+            # Execute all tool calls and collect results
+            tool_results = []
+            for content_block in response.content:
+                if content_block.type == "tool_use":
+                    tool_result = tool_manager.execute_tool(
+                        content_block.name,
+                        **content_block.input
+                    )
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": content_block.id,
+                        "content": tool_result
+                    })
+
+            # Add tool results as single message
+            if tool_results:
+                messages.append({"role": "user", "content": tool_results})
+
+            # Follow-up call; tools stay available until the round cap is reached,
+            # so the last call forces a text answer
+            follow_up_params = {
+                **self.base_params,
+                "messages": messages,
+                "system": base_params["system"]
+            }
+            if round_num < self.MAX_TOOL_ROUNDS and "tools" in base_params:
+                follow_up_params["tools"] = base_params["tools"]
+                follow_up_params["tool_choice"] = {"type": "auto"}
+
+            response = self.client.messages.create(**follow_up_params)
+            if response.stop_reason != "tool_use" or not tool_results:
+                break
+
+        return self._extract_text(response)

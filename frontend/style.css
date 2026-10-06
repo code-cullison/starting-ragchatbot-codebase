@@ -340,6 +340,27 @@ a.source-pill:focus-visible {
     color: var(--text-secondary);
 }
 
+.message-content a {
+    color: var(--link-color);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    word-break: break-all;
+}
+
+.message-content a:hover {
+    color: var(--link-hover);
+}
+
+.message-content a:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+    border-radius: 2px;
+}
+
+.message.user .message-content a {
+    color: white;
+}
+
 /* Welcome message special styling */
 .message.welcome-message .message-content {
     background: var(--surface);

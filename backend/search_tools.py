@@ -121,6 +121,57 @@ class CourseSearchTool(Tool):
         
         return "\n\n".join(formatted)
 
+class CourseOutlineTool(Tool):
+    """Tool for retrieving a course's title, link and complete lesson list"""
+
+    def __init__(self, vector_store: VectorStore):
+        self.store = vector_store
+        self.last_sources = []  # Track sources from last lookup
+
+    def get_tool_definition(self) -> Dict[str, Any]:
+        """Return Anthropic tool definition for this tool"""
+        return {
+            "name": "get_course_outline",
+            "description": "Get the outline of a course: its title, course link, and the complete list of lessons (number and title). Use for questions about a course's outline, structure, syllabus or lesson list",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "course_title": {
+                        "type": "string",
+                        "description": "Course title (partial matches work, e.g. 'MCP', 'Introduction')"
+                    }
+                },
+                "required": ["course_title"]
+            }
+        }
+
+    def execute(self, course_title: str) -> str:
+        """
+        Look up the course outline.
+
+        Args:
+            course_title: Course title or partial name
+
+        Returns:
+            Formatted outline or error message
+        """
+        outline = self.store.get_course_outline(course_title)
+        if not outline:
+            return f"No course found matching '{course_title}'"
+
+        # Track source for the UI
+        self.last_sources = [{"text": outline["title"], "url": outline["course_link"]}]
+
+        lines = [
+            f"Course: {outline['title']}",
+            f"Link: {outline['course_link']}",
+            f"Lessons ({len(outline['lessons'])}):"
+        ]
+        for lesson in outline["lessons"]:
+            lines.append(f"{lesson['lesson_number']}. {lesson['lesson_title']}")
+        return "\n".join(lines)
+
+
 class ToolManager:
     """Manages available tools for the AI"""
     

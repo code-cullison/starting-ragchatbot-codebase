@@ -56,10 +56,8 @@ html.theme-transition *::after {
 
 /* Theme Toggle Button */
 .theme-toggle {
-    position: fixed;
-    top: 1rem;
-    right: 1rem;
-    z-index: 100;
+    position: relative;
+    flex-shrink: 0;
     width: 44px;
     height: 44px;
     display: flex;
@@ -139,9 +137,23 @@ body {
     padding: 0;
 }
 
-/* Header - Hidden */
+/* Header - Title frame */
 header {
-    display: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-shrink: 0;
+    padding: 1rem 1.5rem;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+    position: relative;
+    z-index: 10;
+}
+
+.header-text {
+    min-width: 0;
 }
 
 header h1 {
@@ -844,7 +856,12 @@ details[open] .suggested-header::before {
     }
     
     header h1 {
-        font-size: 1.5rem;
+        font-size: 1.25rem;
+    }
+
+    .subtitle {
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
     }
     
     .chat-messages {

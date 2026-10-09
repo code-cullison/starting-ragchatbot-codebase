@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
     courseTitles = document.getElementById('courseTitles');
     
     setupEventListeners();
+    setupThemeToggle();
     createNewSession();
     loadCourseStats();
 });
@@ -209,4 +210,28 @@ async function loadCourseStats() {
             courseTitles.innerHTML = '<span class="error">Failed to load courses</span>';
         }
     }
+}
+
+// Theme toggle (dark/light), persisted in localStorage
+function setupThemeToggle() {
+    const root = document.documentElement;
+    const toggle = document.getElementById('themeToggle');
+
+    const currentTheme = () => root.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+    const syncLabel = () => {
+        const next = currentTheme() === 'light' ? 'dark' : 'light';
+        toggle.setAttribute('aria-label', `Switch to ${next} theme`);
+        toggle.setAttribute('aria-pressed', String(currentTheme() === 'light'));
+    };
+
+    toggle.addEventListener('click', () => {
+        const next = currentTheme() === 'light' ? 'dark' : 'light';
+        root.classList.add('theme-transition');
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('theme', next); } catch (e) {}
+        syncLabel();
+        setTimeout(() => root.classList.remove('theme-transition'), 400);
+    });
+
+    syncLabel();
 }

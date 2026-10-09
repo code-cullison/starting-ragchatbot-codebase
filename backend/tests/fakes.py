@@ -1,4 +1,5 @@
 """Fake Anthropic response objects shared by the tests."""
+
 from types import SimpleNamespace
 
 

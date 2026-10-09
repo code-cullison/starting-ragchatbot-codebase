@@ -1,5 +1,6 @@
 """RAGSystem.query end to end (real vector store + tools, mocked Anthropic client),
 plus the /api/query endpoint via TestClient."""
+
 import importlib
 import os
 from unittest.mock import MagicMock, patch
@@ -20,23 +21,33 @@ def script_claude(rag, *responses):
 def search_then_answer(rag, answer, **tool_input):
     return script_claude(
         rag,
-        response(tool_use_block("search_course_content", tool_input), stop_reason="tool_use"),
+        response(
+            tool_use_block("search_course_content", tool_input), stop_reason="tool_use"
+        ),
         response(text_block(answer)),
     )
 
 
 # --- RAGSystem.query -------------------------------------------------------
 
+
 def test_content_question_runs_search_and_returns_answer_with_sources(rag):
-    create = search_then_answer(rag, "MCP standardizes context.",
-                                query="what is MCP", course_name="MCP", lesson_number=1)
+    create = search_then_answer(
+        rag,
+        "MCP standardizes context.",
+        query="what is MCP",
+        course_name="MCP",
+        lesson_number=1,
+    )
 
     answer, sources = rag.query("What is MCP?")
 
     assert answer == "MCP standardizes context."
     assert sources == [{"text": f"{COURSE_TITLE} - Lesson 1", "url": LESSON_LINKS[1]}]
     # the tool result Claude saw contains the real retrieved chunk
-    tool_result = create.call_args_list[1].kwargs["messages"][-1]["content"][0]["content"]
+    tool_result = create.call_args_list[1].kwargs["messages"][-1]["content"][0][
+        "content"
+    ]
     assert "standardizes how applications give context" in tool_result
 
 
@@ -49,12 +60,15 @@ def test_both_tools_are_offered_to_claude(rag):
 
 def test_outline_question_uses_outline_tool(rag):
     search = tool_use_block("get_course_outline", {"course_title": "MCP"})
-    create = script_claude(rag, response(search, stop_reason="tool_use"),
-                           response(text_block("outline")))
+    create = script_claude(
+        rag, response(search, stop_reason="tool_use"), response(text_block("outline"))
+    )
     answer, sources = rag.query("Outline of MCP course?")
     assert answer == "outline"
     assert sources == [{"text": COURSE_TITLE, "url": COURSE_LINK}]
-    tool_result = create.call_args_list[1].kwargs["messages"][-1]["content"][0]["content"]
+    tool_result = create.call_args_list[1].kwargs["messages"][-1]["content"][0][
+        "content"
+    ]
     assert "0. Introduction" in tool_result and "1. Why MCP" in tool_result
 
 
@@ -84,7 +98,9 @@ def test_session_history_is_saved_and_sent_on_next_query(rag):
 
 
 def test_unknown_course_search_reports_no_match_to_claude(rag):
-    create = search_then_answer(rag, "not found", query="x", course_name="zzzz-nonexistent")
+    create = search_then_answer(
+        rag, "not found", query="x", course_name="zzzz-nonexistent"
+    )
     # resolution is semantic (nearest neighbour), so any course "matches"; the point is no crash
     answer, _ = rag.query("q")
     assert answer == "not found"
@@ -99,12 +115,14 @@ def test_api_failure_propagates_from_query(rag):
 
 # --- POST /api/query -------------------------------------------------------
 
+
 @pytest.fixture
 def client(rag, monkeypatch):
     """TestClient over the real FastAPI app, with RAGSystem construction stubbed out."""
     monkeypatch.chdir(BACKEND_DIR)  # app mounts ../frontend relative to cwd
     with patch("rag_system.RAGSystem", return_value=rag):
         import app as app_module
+
         importlib.reload(app_module)
     return TestClient(app_module.app)  # no `with`: skips startup doc ingestion
 

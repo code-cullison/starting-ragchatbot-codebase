@@ -11,7 +11,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run the app: `./run.sh` (or `cd backend && uv run uvicorn app:app --reload --port 8000`)
   - Web UI at http://localhost:8000, Swagger docs at http://localhost:8000/docs
 - Requires `ANTHROPIC_API_KEY` in a root `.env` (see `.env.example`).
-- There is no test suite, linter, or build step configured. `main.py` is a stub; the real entry point is `backend/app.py`.
+- Code quality: `./scripts/format.sh` auto-formats with black; `./scripts/check.sh` runs `black --check` plus the pytest suite (run before committing). Black config lives in `pyproject.toml`.
+- There is no linter or build step configured. `main.py` is a stub; the real entry point is `backend/app.py`.
 
 The server must be started from `backend/` — paths like `../docs`, `../frontend` and `./chroma_db` (ChromaDB persistence) are relative to that cwd.
 

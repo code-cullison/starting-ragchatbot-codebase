@@ -9,7 +9,9 @@ class AIGenerator:
 
 Search Tool Usage:
 - Use the content search tool **only** for questions about specific course content or detailed educational materials
-- **One tool call per query maximum**
+- You may make up to **two sequential tool calls** per query, each in its own step, when the second call depends on the first call's result
+- Chain calls only when needed (e.g. get a course outline to find a lesson's title, then search course content using that title, possibly in another course); use a single call when one is enough, and never repeat an identical call
+- If a tool returns an error or nothing useful, stop and answer with what you have; do not retry
 - Synthesize search results into accurate, fact-based responses
 - If search yields no results, state this clearly without offering alternatives
 
@@ -19,7 +21,7 @@ Course Outline Tool Usage:
 
 Response Protocol:
 - **General knowledge questions**: Answer using existing knowledge without searching
-- **Course-specific questions**: Search first, then answer
+- **Course-specific questions**: Search (and chain a second call if required), then answer
 - **No meta-commentary**:
  - Provide direct answers only — no reasoning process, search explanations, or question-type analysis
  - Do not mention "based on the search results"
@@ -122,38 +124,47 @@ Provide only the direct answer to what was asked.
             # Add AI's tool use response
             messages.append({"role": "assistant", "content": response.content})
 
-            # Execute all tool calls and collect results
+            # Execute all tool calls and collect results. Every tool_use block
+            # needs a matching tool_result; a raised exception is reported back
+            # to Claude as an error result instead of aborting the request.
             tool_results = []
+            failed = False
             for content_block in response.content:
                 if content_block.type == "tool_use":
-                    tool_result = tool_manager.execute_tool(
-                        content_block.name,
-                        **content_block.input
-                    )
-
-                    tool_results.append({
+                    result_block = {
                         "type": "tool_result",
                         "tool_use_id": content_block.id,
-                        "content": tool_result
-                    })
+                    }
+                    try:
+                        result_block["content"] = tool_manager.execute_tool(
+                            content_block.name,
+                            **content_block.input
+                        )
+                    except Exception as e:
+                        failed = True
+                        result_block["content"] = f"Tool error: {e}"
+                        result_block["is_error"] = True
+                    tool_results.append(result_block)
 
             # Add tool results as single message
             if tool_results:
                 messages.append({"role": "user", "content": tool_results})
 
-            # Follow-up call; tools stay available until the round cap is reached,
-            # so the last call forces a text answer
+            # Follow-up call; tools stay defined (history contains tool_use blocks),
+            # but once the round cap is reached or a tool failed, tool_choice "none"
+            # forces a text answer
             follow_up_params = {
                 **self.base_params,
-                "messages": messages,
+                "messages": list(messages),
                 "system": base_params["system"]
             }
-            if round_num < self.MAX_TOOL_ROUNDS and "tools" in base_params:
+            if "tools" in base_params:
                 follow_up_params["tools"] = base_params["tools"]
-                follow_up_params["tool_choice"] = {"type": "auto"}
+                keep_tools = round_num < self.MAX_TOOL_ROUNDS and not failed
+                follow_up_params["tool_choice"] = {"type": "auto" if keep_tools else "none"}
 
             response = self.client.messages.create(**follow_up_params)
-            if response.stop_reason != "tool_use" or not tool_results:
+            if response.stop_reason != "tool_use":
                 break
 
         return self._extract_text(response)

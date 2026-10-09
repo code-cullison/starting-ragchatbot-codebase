@@ -113,11 +113,11 @@ def test_second_tool_request_in_follow_up_is_executed(gen, tool_manager):
     assert gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager) == "final"
     assert tool_manager.execute_tool.call_count == 2
     calls = gen.client.messages.create.call_args_list
-    assert "tools" in calls[1].kwargs
-    assert "tools" not in calls[2].kwargs  # cap reached: Claude must answer in text
+    assert calls[1].kwargs["tool_choice"] == {"type": "auto"}
+    assert calls[2].kwargs["tool_choice"] == {"type": "none"}  # cap reached: Claude must answer in text
 
 
-def test_tool_rounds_are_capped_and_last_call_has_no_tools(gen, tool_manager):
+def test_tool_rounds_are_capped_and_last_call_forbids_tools(gen, tool_manager):
     """Claude that keeps asking for tools is cut off after MAX_TOOL_ROUNDS executions."""
     def another(i):
         return response(tool_use_block("search_course_content", {"query": "q"}, id=f"t{i}"),
@@ -125,4 +125,96 @@ def test_tool_rounds_are_capped_and_last_call_has_no_tools(gen, tool_manager):
     gen.client.messages.create.side_effect = [another(0), another(1), response(text_block("done"))]
     assert gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager) == "done"
     assert tool_manager.execute_tool.call_count == AIGenerator.MAX_TOOL_ROUNDS
-    assert gen.client.messages.create.call_count == AIGenerator.MAX_TOOL_ROUNDS + 1
+    calls = gen.client.messages.create.call_args_list
+    assert len(calls) == AIGenerator.MAX_TOOL_ROUNDS + 1
+    assert calls[-1].kwargs["tools"] == TOOLS  # history holds tool_use blocks, so tools stay defined
+    assert calls[-1].kwargs["tool_choice"] == {"type": "none"}
+
+
+def test_two_round_chain_passes_context_between_calls(gen, tool_manager):
+    outline = tool_use_block("get_course_outline", {"course_name": "X"}, id="t1")
+    search = tool_use_block("search_course_content", {"query": "Lesson 4 title"}, id="t2")
+    tool_manager.execute_tool.side_effect = ["OUTLINE", "SEARCH"]
+    gen.client.messages.create.side_effect = [
+        response(outline, stop_reason="tool_use"),
+        response(search, stop_reason="tool_use"),
+        response(text_block("complete answer")),
+    ]
+    assert gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager) == "complete answer"
+
+    assert [c.args for c in tool_manager.execute_tool.call_args_list] == [
+        ("get_course_outline",), ("search_course_content",)]
+    assert tool_manager.execute_tool.call_args_list[1].kwargs == {"query": "Lesson 4 title"}
+    messages = gen.client.messages.create.call_args_list[2].kwargs["messages"]
+    assert messages == [
+        {"role": "user", "content": "q"},
+        {"role": "assistant", "content": [outline]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "OUTLINE"}]},
+        {"role": "assistant", "content": [search]},
+        {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "SEARCH"}]},
+    ]
+
+
+def test_stops_after_one_round_when_second_response_is_text(gen, tool_manager):
+    gen.client.messages.create.side_effect = [
+        response(SEARCH_USE, stop_reason="tool_use"),
+        response(text_block("final")),
+    ]
+    gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager)
+    assert gen.client.messages.create.call_count == 2
+    assert tool_manager.execute_tool.call_count == 1
+
+
+def test_tool_exception_returns_graceful_answer(gen, tool_manager):
+    tool_manager.execute_tool.side_effect = Exception("boom")
+    gen.client.messages.create.side_effect = [
+        response(SEARCH_USE, stop_reason="tool_use"),
+        response(text_block("sorry, search failed")),
+    ]
+    assert gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager) == "sorry, search failed"
+
+    follow_up = gen.client.messages.create.call_args_list[1].kwargs
+    (result,) = follow_up["messages"][-1]["content"]
+    assert result["tool_use_id"] == "toolu_42"
+    assert result["is_error"] is True
+    assert "boom" in result["content"]
+
+
+def test_tool_failure_stops_further_tool_rounds(gen, tool_manager):
+    tool_manager.execute_tool.side_effect = Exception("boom")
+    gen.client.messages.create.side_effect = [
+        response(SEARCH_USE, stop_reason="tool_use"),
+        response(text_block("final")),
+    ]
+    gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager)
+    assert tool_manager.execute_tool.call_count == 1
+    assert gen.client.messages.create.call_count == 2
+    assert gen.client.messages.create.call_args_list[1].kwargs["tool_choice"] == {"type": "none"}
+
+
+def test_multiple_tool_use_blocks_in_one_round_all_get_results(gen, tool_manager):
+    a = tool_use_block("search_course_content", {"query": "a"}, id="ta")
+    b = tool_use_block("get_course_outline", {"course_name": "b"}, id="tb")
+    tool_manager.execute_tool.side_effect = ["A", "B"]
+    gen.client.messages.create.side_effect = [
+        response(a, b, stop_reason="tool_use"),
+        response(text_block("final")),
+    ]
+    gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager)
+    results = gen.client.messages.create.call_args_list[1].kwargs["messages"][-1]["content"]
+    assert [(r["tool_use_id"], r["content"]) for r in results] == [("ta", "A"), ("tb", "B")]
+
+
+def test_error_in_one_of_several_blocks_still_returns_result_for_each(gen, tool_manager):
+    a = tool_use_block("search_course_content", {"query": "a"}, id="ta")
+    b = tool_use_block("get_course_outline", {"course_name": "b"}, id="tb")
+    tool_manager.execute_tool.side_effect = [Exception("boom"), "B"]
+    gen.client.messages.create.side_effect = [
+        response(a, b, stop_reason="tool_use"),
+        response(text_block("final")),
+    ]
+    gen.generate_response("q", tools=TOOLS, tool_manager=tool_manager)
+    results = gen.client.messages.create.call_args_list[1].kwargs["messages"][-1]["content"]
+    assert [r["tool_use_id"] for r in results] == ["ta", "tb"]
+    assert results[0]["is_error"] is True
+    assert "is_error" not in results[1]

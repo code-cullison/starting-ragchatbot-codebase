@@ -31,3 +31,11 @@ extend-exclude = '''
   | \.venv
 )/
 '''
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend"]
+addopts = "-v --tb=short"
+markers = [
+    "api: FastAPI endpoint tests (no static files, mocked RAG system)",
+]
